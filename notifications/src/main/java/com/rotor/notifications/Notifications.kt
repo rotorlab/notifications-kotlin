@@ -82,7 +82,7 @@ class Notifications {
                                 val method = notification.getString("method")
                                 if (Method.ADD.getMethod().equals(method)) {
                                     if (!docker!!.notifications!!.containsKey(notification.getString("id"))) {
-                                        createNotification(notification.getString("id"), null)
+                                        notify(notification.getString("id"), null)
                                     }
                                 } else if (Method.REMOVE.getMethod().equals(method)) {
                                     if (docker!!.notifications!!.containsKey(notification.getString("id"))) {
@@ -127,15 +127,15 @@ class Notifications {
             return Notification(id.toString(), id, content, Sender(Rotor.id!!, id), map)
         }
 
-        @JvmStatic fun createNotification(id: String, notificationn: Notification ?) {
+        @JvmStatic fun notify(id: String, notification: Notification ?) {
             var identifier = if (!id.contains("notifications")) NOTIFICATION + id else id
             Database.listen(identifier, object: Reference<Notification>(Notification::class.java) {
 
                 var created = false
 
                 override fun onCreate() {
-                    notificationn?.let {
-                        docker!!.notifications!![identifier] = notificationn
+                    notification?.let {
+                        docker!!.notifications!![identifier] = notification
                         Database.sync(identifier)
                         created = true
                     }
@@ -304,15 +304,12 @@ class Notifications {
             } else {
                 val gson = Gson()
                 docker = gson.fromJson(notificationsAsString, NotificationDocker::class.java) as NotificationDocker
-                val id = Rotor.id
                 for (notification in docker!!.notifications!!.values) {
-                    //if (!id.equals(notification.sender.id)) {
-                        for (receiver in notification.receivers.values) {
-                            if (receiver.id.equals(id) && receiver.viewed == null) {
-                                createNotification(notification.id, null)
-                            }
+                    for (receiver in notification.receivers.values) {
+                        if (receiver.id.equals(Rotor.id) && receiver.viewed == null) {
+                            notify(notification.id, null)
                         }
-                    //}
+                    }
                 }
             }
         }

@@ -12,19 +12,18 @@ Content content = new Content(ACTION_CHAT,  // requestCode
         "Hi :)",                            // title
         "Welcome to notifications!",        // body
         "ttt",                              // data
-        "myChannel",                        // channel ID (Android 8)
-        "Test channel",                     // channel description
+        "myChannel",                        // channel ID           (Android 8)
+        "Test channel",                     // channel description  (Android 8)
         null,                               // small photo url
         null                                // big photo url
 );                              
  
-ArrayList<String> ids = new ArrayList<>();  // device ids will receive the notification
-ids.add("f33f3642e39650b9");
+ArrayList<String> ids = new ArrayList<>();  // device ids that will receive the notification
+ids.add(Rotor.id);
 ids.add("48484aad18e02d76");
 
-Notification notification = Notifications.builder(content, ids);
-
-Notifications.createNotification(notification.getId(), notification);
+// send
+Notifications.notify(Notifications.builder(content, ids));
 ```
 
 Implementing notifications is usually a confused task. Rotor makes it easier by defining a routing `Activity` for handler notification actions. First of all `Notifications` must be initialized with a routing activity `Class`:
@@ -32,11 +31,22 @@ Implementing notifications is usually a confused task. Rotor makes it easier by 
 public class SplashActivity extends AppCompatActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
         Rotor.initialize(getApplicationContext(), BuildConfig.database_url, BuildConfig.redis_url, new StatusListener() {
             @Override
             public void connected() {
                 // Database.initialize();
-                Notifications.initialize(NotificationActivity.class);
+                Notifications.initialize(NotificationActivity.class, new Listener() {
+                    @Override
+                    public void opened(@NotNull String deviceId, @NotNull Notification notification) {
+ 
+                    }
+ 
+                    @Override
+                    public void removed(@NotNull Notification notification) {
+ 
+                    }
+                });
             }
  
             @Override
@@ -51,12 +61,22 @@ Define a routing activity by extending `NotificationRouterActivity` and implemen
 ```java
 public class NotificationActivity extends NotificationRouterActivity {
     @Override
-    public void onCreate(@org.jetbrains.annotations.Nullable Bundle savedInstanceState, int action, @NotNull String id, @NotNull String data) {
+    public void onCreate() {
         Rotor.initialize(getApplicationContext(), BuildConfig.database_url, BuildConfig.redis_url, new StatusListener() {
             @Override
             public void connected() {
                 // Database.initialize();
-                Notifications.initialize(NotificationActivity.class);
+                Notifications.initialize(NotificationActivity.class, new Listener() {
+                    @Override
+                    public void opened(@NotNull String deviceId, @NotNull Notification notification) {
+ 
+                    }
+ 
+                    @Override
+                    public void removed(@NotNull Notification notification) {
+ 
+                    }
+                });
             }
  
             @Override
@@ -90,7 +110,7 @@ android {
     }
 }
  
-def rotor_version =  "0.1.2"
+def rotor_version =  "0.1.3"
  
 dependencies {
     implementation ("com.rotor:core:$rotor_version@aar") {
