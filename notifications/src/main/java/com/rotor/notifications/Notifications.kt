@@ -21,17 +21,17 @@ import android.support.v4.app.NotificationManagerCompat
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.TaskStackBuilder
 import android.content.Intent
 import android.content.Intent.FLAG_ACTIVITY_NO_HISTORY
-import android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
 import android.os.Build
 import android.util.Log
 import com.google.gson.Gson
 import com.rotor.database.utils.ReferenceUtils
 import com.rotor.notifications.data.NotificationDocker
 import com.rotor.notifications.interfaces.ClazzLoader
+import com.rotor.notifications.interfaces.Listener
 import com.rotor.notifications.interfaces.Server
+import com.rotor.notifications.request.NotificationGetter
 import com.rotor.notifications.request.NotificationSender
 import com.stringcare.library.SC
 import io.reactivex.android.schedulers.AndroidSchedulers
@@ -50,10 +50,11 @@ class Notifications {
     companion object {
 
         val ID = "id"
-        val DATA = "data"
-        val RC = "rquest_code"
+        val ROOM = "room"
+        val RC = "request_code"
         val NOTIFICATION = "/notifications/"
         private  var docker: NotificationDocker? = null
+        private  var listener: Listener? = null
         private val TAG: String = Notifications::class.java.simpleName!!
         private var loader: ClazzLoader<*> ? = null
         private var notificationStatusListener: NotificationRouterActivity.NotificationsStatus ? = null
@@ -62,10 +63,13 @@ class Notifications {
             service(Rotor.urlServer!!)
         }
 
-        @JvmStatic fun <T> initialize(clazz: Class<T>) {
+        @JvmStatic fun <T> initialize(clazz: Class<T>, listener: Listener) {
             SC.init(Rotor.context)
 
+            Database.initialize()
+
             loader = ClazzLoader<T>(clazz)
+            this.listener = listener
 
             loadCachedNotifications()
 
@@ -82,16 +86,16 @@ class Notifications {
                                 val method = notification.getString("method")
                                 if (Method.ADD.getMethod().equals(method)) {
                                     if (!docker!!.notifications!!.containsKey(notification.getString("id"))) {
-                                        notify(notification.getString("id"), null)
+                                        notify(notification.getString("id"))
                                     }
                                 } else if (Method.REMOVE.getMethod().equals(method)) {
                                     if (docker!!.notifications!!.containsKey(notification.getString("id"))) {
-                                        removeNotification(NOTIFICATION + notification.getString("id"))
+                                        remove(NOTIFICATION + notification.getString("id"))
                                     }
                                 }
                             }
                         }
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         e.printStackTrace()
                     }
 
@@ -121,15 +125,26 @@ class Notifications {
             val id = Date().time
             val map = HashMap<String, Receiver>()
             for (receiver in receivers) {
+                if (receiver.equals(Rotor.id)) {
+                    continue
+                }
                 map[receiver] = Receiver(receiver, null)
             }
             content?.id = id.toString()
             return Notification(id.toString(), id, content, Sender(Rotor.id!!, id), map)
         }
 
-        @JvmStatic fun notify(id: String, notification: Notification ?) {
-            var identifier = if (!id.contains("notifications")) NOTIFICATION + id else id
-            Database.listen(identifier, object: Reference<Notification>(Notification::class.java) {
+        @JvmStatic fun notify(id: String) {
+            notify(id, null)
+        }
+
+        @JvmStatic fun notify(notification: Notification) {
+            notify(notification.id, notification)
+        }
+
+        @JvmStatic  private fun notify(id: String, notification: Notification ?) {
+            val identifier = if (!id.contains("notifications")) NOTIFICATION + id else id
+            Database.listen("notifications", identifier, object: Reference<Notification>(Notification::class.java) {
 
                 var created = false
 
@@ -137,28 +152,58 @@ class Notifications {
                     notification?.let {
                         docker!!.notifications!![identifier] = notification
                         Database.sync(identifier)
+                        Log.e(TAG, "notification added")
                         created = true
                     }
                 }
 
                 override fun onChanged(ref: Notification) {
+                    Log.e(TAG, "notification returned")
+                    var readCount = 0
+                    val newOpens = ArrayList<String>()
+                    if (ref.sender.id.equals(Rotor.id)) {
+                        for (receiver in ref.receivers.values) {
+                            if (receiver.viewed != docker!!.notifications!![identifier]!!.receivers[receiver.id]!!.viewed || (receiver.viewed != null && Rotor.id.equals(receiver.id))) {
+                                newOpens.add(receiver.id)
+                            }
+                            if (receiver.viewed != null) {
+                                readCount++
+                            }
+                        }
+                    }
+
                     docker!!.notifications!![identifier] = ref
                     val gson = Gson()
-                    val notificationsAsString = gson.toJson(docker!!)
-                    ReferenceUtils.addElement(NOTIFICATION, notificationsAsString)
-                    showNotification(identifier)
+                    ReferenceUtils.addElement(NOTIFICATION, gson.toJson(docker!!))
+                    if (!ref.sender.id.equals(Rotor.id)) {
+                        show(identifier)
+                    }
                     if (created) {
                         created = false
                         var rece: ArrayList<Receiver> = arrayListOf()
                         rece.addAll(ref.receivers.values)
                         sendNotification(identifier, rece)
-                    } else if (ref.receivers[Rotor.id]!!.viewed != null) {
+                    } else if (ref.receivers.containsKey(Rotor.id)
+                            && ref.receivers[Rotor.id]!!.viewed != null
+                            && !ref.sender!!.id!!.equals(Rotor.id)) {
+
                         val notificationManager = NotificationManagerCompat.from(Rotor.context!!)
                         val idNumber = ref.id.toLong()
                         notificationManager.cancel(idNumber.toInt())
 
                         docker!!.notifications!!.remove(identifier)
                         Database.unlisten(identifier)
+                        ReferenceUtils.addElement(NOTIFICATION, gson.toJson(docker!!))
+                    } else if (ref.sender.id.equals(Rotor.id) && listener != null) {
+                        for (r in newOpens) {
+                            listener!!.opened(r, docker!!.notifications!![identifier]!!)
+                        }
+                        if (readCount == docker!!.notifications!![identifier]!!.receivers.size) {
+                            val notificationManager = NotificationManagerCompat.from(Rotor.context!!)
+                            val idNumber = docker!!.notifications!![identifier]!!.id.toLong()
+                            notificationManager.cancel(idNumber.toInt())
+                            Database.remove(identifier)
+                        }
                     }
                 }
 
@@ -175,34 +220,46 @@ class Notifications {
                 }
 
                 override fun onDestroy() {
-                    if (docker!!.notifications!!.containsKey(identifier)) {
+                    if (docker != null &&
+                        docker!!.notifications != null && docker!!.notifications!!.containsKey(identifier) &&
+                        docker!!.notifications!![identifier]!!.sender.id.equals(Rotor.id)) {
+
+                        listener?.let {
+                            it.removed(docker!!.notifications!![identifier]!!)
+                        }
                         docker!!.notifications!!.remove(identifier)
+                        Database.unlisten(identifier)
+                        val gson = Gson()
+                        ReferenceUtils.addElement(NOTIFICATION, gson.toJson(docker!!))
                     }
                 }
 
             })
         }
 
-        @JvmStatic fun removeNotification(id: String) {
-            var identifier = if (!id.contains("notifications")) NOTIFICATION + id else id
-            if (docker!!.notifications!!.containsKey(identifier)) {
-                docker!!.notifications!![identifier]!!.receivers.get(Rotor.id)!!.viewed = Date().time
-                Database.sync(identifier)
-            }
-        }
-
-        @JvmStatic fun removeNotificationByData(data: String) {
+        @JvmStatic fun remove(value: String) : Boolean {
+            var deleted = false
             for (notification in docker!!.notifications!!.values) {
-                if (data.equals(notification.content.data)) {
+                if (value.equals(notification.content.room)) {
                     if (notification.receivers.containsKey(Rotor.id)) {
                         notification.receivers.get(Rotor.id)!!.viewed = Date().time
                         Database.sync(NOTIFICATION + notification.id)
+                        deleted = true
                     }
                 }
             }
+            if (!deleted) {
+                val identifier = if (!value.contains("notifications")) NOTIFICATION + value else value
+                if (docker!!.notifications!!.containsKey(identifier)) {
+                    docker!!.notifications!![identifier]!!.receivers.get(Rotor.id)!!.viewed = Date().time
+                    Database.sync(identifier)
+                    deleted = true
+                }
+            }
+            return deleted
         }
 
-        @JvmStatic fun showNotification(id: String) {
+        @JvmStatic fun show(id: String) {
             var identifier = if (!id.contains("notifications")) NOTIFICATION + id else id
             if (docker!!.notifications!!.containsKey(identifier)) {
                 val notification = docker!!.notifications!![identifier]
@@ -214,17 +271,17 @@ class Notifications {
                         val imageLoader = ImageLoader.getInstance()
                         imageLoader.loadImage(content.photo, object : SimpleImageLoadingListener() {
                             override fun onLoadingComplete(imageUri: String, view: View, loadedImage: Bitmap) {
-                                interShowNotification(identifier, content, loadedImage)
+                                interShow(identifier, content, loadedImage)
                             }
                         })
                     } else {
-                        interShowNotification(identifier, content, null)
+                        interShow(identifier, content, null)
                     }
                 }
             }
         }
 
-        private fun interShowNotification(id: String, content: Content, bitmap: Bitmap ?) {
+        private fun interShow(id: String, content: Content, bitmap: Bitmap ?) {
             var mBuilder: NotificationCompat.Builder ? = null
             if (bitmap != null) {
                 mBuilder = NotificationCompat.Builder(Rotor.context!!, id)
@@ -286,18 +343,13 @@ class Notifications {
             val resultIntent = Intent(Rotor.context, loader!!.getClazz())
             resultIntent.addFlags(FLAG_ACTIVITY_NO_HISTORY)
             resultIntent.putExtra(ID, content.id)
-            resultIntent.putExtra(DATA, content.data)
+            resultIntent.putExtra(ROOM, content.room)
             resultIntent.putExtra(RC, content.requestCode)
-
-            // val stackBuilder = TaskStackBuilder.create(Rotor.context)
-            // stackBuilder.addNextIntentWithParentStack(resultIntent)
-
-            // val resultPendingIntent = stackBuilder.getPendingIntent(0, PendingIntent.FLAG_ONE_SHOT)
-            val resultPendingIntent = PendingIntent.getActivity(Rotor.context, 0, resultIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+            val resultPendingIntent = PendingIntent.getActivity(Rotor.context, 0, resultIntent, PendingIntent.FLAG_ONE_SHOT);
             return resultPendingIntent
         }
 
-        @JvmStatic fun loadCachedNotifications() {
+        @JvmStatic private fun loadCachedNotifications() {
             val notificationsAsString: String ? = ReferenceUtils.getElement(NOTIFICATION)
             if (notificationsAsString == null) {
                 docker = NotificationDocker()
@@ -307,15 +359,35 @@ class Notifications {
                 for (notification in docker!!.notifications!!.values) {
                     for (receiver in notification.receivers.values) {
                         if (receiver.id.equals(Rotor.id) && receiver.viewed == null) {
-                            notify(notification.id, null)
+                            notify(notification.id)
                         }
+                    }
+                    if (notification.sender.id.equals(Rotor.id, true)) {
+                        notify(notification.id)
                     }
                 }
             }
+            getPendingNotification()
         }
 
         @JvmStatic private fun sendNotification(id: String, receivers: ArrayList<Receiver>) {
-            api.sendNotification(NotificationSender("send_notifications", id, receivers))
+            api.sendNotification(NotificationSender("send_notifications", Rotor.id, id, receivers))
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(
+                            { result ->
+                                result.status?.let {
+                                    Log.e(TAG, result.status)
+                                }
+                            },
+                            { error -> error.printStackTrace() }
+                    )
+        }
+
+        @JvmStatic private fun getPendingNotification() {
+            val receivers: ArrayList<String> = ArrayList()
+            receivers.add(Rotor.id!!)
+            api.getNotifications(NotificationGetter("pending_notifications", Rotor.id, receivers))
                     .subscribeOn(Schedulers.io())
                     .observeOn(AndroidSchedulers.mainThread())
                     .subscribe(

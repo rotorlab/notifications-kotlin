@@ -2,7 +2,6 @@ package com.rotor.notifications.request;
 
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
-import com.rotor.notifications.model.Receiver;
 
 import java.util.List;
 
@@ -10,15 +9,11 @@ import java.util.List;
  * Created by efraespada on 19/03/2018.
  */
 
-public class NotificationSender {
+public class NotificationGetter {
 
     @SerializedName("method")
     @Expose
     String method;
-
-    @SerializedName("notificationId")
-    @Expose
-    String id;
 
     @SerializedName("token")
     @Expose
@@ -26,16 +21,15 @@ public class NotificationSender {
 
     @SerializedName("receivers")
     @Expose
-    List<Receiver> receivers;
+    List<String> receivers;
 
-    public NotificationSender() {
+    public NotificationGetter() {
         // nothing to do here
     }
 
-    public NotificationSender(String method, String token, String id, List<Receiver> receivers) {
+    public NotificationGetter(String method, String token, List<String> receivers) {
         this.token = token;
         this.method = method;
-        this.id = id;
         this.receivers = receivers;
     }
 
@@ -47,19 +41,11 @@ public class NotificationSender {
         this.method = method;
     }
 
-    public String getNotificationId() {
-        return id;
-    }
-
-    public void setNotificationId(String id) {
-        this.id = id;
-    }
-
-    public List<Receiver> getReceivers() {
+    public List<String> getReceivers() {
         return receivers;
     }
 
-    public void setReceivers(List<Receiver> receiver) {
+    public void setReceivers(List<String> receiver) {
         this.receivers = receiver;
     }
 
