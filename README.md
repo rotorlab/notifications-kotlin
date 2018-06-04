@@ -112,11 +112,11 @@ public class NotificationActivity extends NotificationRouterActivity {
     }
  
     @Override
-    public void notificationTouched(int action, @NotNull String id, @NotNull String data) {
+    public void notificationTouched(int action, @NotNull String id, @NotNull String room) {
         if (action == SplashActivity.ACTION_CHAT) {
             Intent intent = new Intent(this, ChatActivity.class);
             intent.addFlags(FLAG_ACTIVITY_NO_HISTORY);
-            intent.putExtra("path", data);
+            intent.putExtra("path", room);
             intent.putExtra("notification", id);
             startActivity(intent);
         }
