@@ -1,4 +1,4 @@
-[ ![Download](https://api.bintray.com/packages/efff/maven/RotorKotlinDatabase/images/download.svg) ](https://bintray.com/efff/maven/RotorKotlinDatabase/_latestVersion)
+[ ![Download](https://api.bintray.com/packages/efff/maven/RotorKotlinNotifications/images/download.svg) ](https://bintray.com/efff/maven/RotorKotlinDatabase/_latestVersion)
 <p align="center"><img width="10%" vspace="20" src="https://github.com/rotorlab/notifications-kotlin/raw/master/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png"></p>
  
 Before use this library, [Rotor Core](https://github.com/rotorlab/core-kotlin) must be initialized. Lastest version is always the same on all Rotor libs.
